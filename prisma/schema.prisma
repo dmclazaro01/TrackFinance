@@ -1,0 +1,283 @@
+// TrackFinance — Prisma schema
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  runtime  = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Auth.js (NextAuth) models
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts Account[]
+  sessions Session[]
+
+  // Financial profile & holdings
+  profile      Profile?
+  properties        Property[]
+  holdings          Holding[]
+  cashAccounts      CashAccount[]
+  debts             Debt[]
+  insurances        Insurance[]
+  salaryAllocations SalaryAllocation[]
+  transactions      Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Financial domain models
+// ─────────────────────────────────────────────────────────────
+
+/// Personal financial profile: income & base currency.
+model Profile {
+  id       String @id @default(cuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  baseCurrency    String  @default("EUR")
+  grossSalary     Float   @default(0) // annual gross salary
+  netMonthly      Float   @default(0) // net monthly income
+  monthlyExpenses Float   @default(0) // gastos de vida estimados, SIN seguros/hipotecas/deudas (esos se calculan solos)
+  salaryAccountId String? // cash account where the salary is deposited
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// How the monthly salary is split across accounts (% per account).
+/// Whatever % is left over goes to the profile's main salary account.
+model SalaryAllocation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String // target cash account
+  percent   Float  @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Real-estate property, optionally financed with a mortgage.
+model Property {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String
+  currentValue  Float // manual current market value (fallback)
+  purchaseValue Float     @default(0)
+  purchaseDate  DateTime?
+
+  // Online appraisal (Catastro m² × zonal €/m²), refreshed daily.
+  cadastralRef  String? // referencia catastral (20 chars) for the exact unit
+  address       String? // free-text address (display + zone)
+  province      String? // resolved from Catastro, used to pick €/m²
+  surfaceM2     Float? // built surface from Catastro
+  autoValuation Boolean   @default(false)
+  appraisedValue Float? // last computed estimate
+  appraisedAt    DateTime?
+
+  valuations PropertyValuation[]
+
+  // Mortgage
+  hasMortgage       Boolean @default(false)
+  mortgageBalance   Float   @default(0) // outstanding principal
+  mortgageTin       Float   @default(0) // nominal annual interest rate (TIN) in %
+  mortgageMonths    Int     @default(0) // remaining months
+  mortgageStartDate DateTime? // desde qué mes se cobra la cuota (null = desde el inicio)
+  mortgageAccountId String? // cash account the mortgage is paid from
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Daily appraisal snapshot, for the property's value history.
+model PropertyValuation {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  value Float
+  date  DateTime @default(now())
+
+  @@index([propertyId, date])
+}
+
+enum HoldingType {
+  STOCK
+  ETF
+  FUND
+  CRYPTO
+  BOND
+  OTHER
+}
+
+/// A market position (stock, ETF, fund, crypto) tracked live by symbol/ISIN.
+model Holding {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type     HoldingType @default(STOCK)
+  name     String
+  symbol   String // Yahoo Finance symbol used for live quotes
+  isin     String? // optional ISIN reference
+  currency String      @default("EUR")
+
+  quantity    Float
+  avgBuyPrice Float // average purchase price per unit (in `currency`)
+
+  // Dollar-cost averaging: recurring monthly contribution (in `currency`)
+  // that accrues automatically from `dcaStartDate` onward.
+  dcaAmount    Float     @default(0)
+  dcaStartDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Cash held in bank / savings accounts.
+model CashAccount {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  balance         Float  @default(0)
+  currency        String @default("EUR")
+  apr             Float  @default(0) // annual interest %, for savings
+  cashbackPercent Float  @default(0) // % cashback earned on card spending
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum TxType {
+  INCOME
+  EXPENSE
+}
+
+/// A logged income or expense (manual ledger). Not auto-synced from banks.
+model Transaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        TxType
+  kind        String? // finer bucket: Ingresos | Gastos fijos | Gastos variables | Inversiones
+  amount      Float // positive magnitude
+  currency    String   @default("EUR")
+  date        DateTime @default(now())
+  category    String?
+  description String?
+  accountId   String? // cash account it affects
+  cashback    Float    @default(0) // cashback earned (expenses on cashback accounts)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+}
+
+enum InsuranceType {
+  HOME // hogar
+  LIFE // vida
+  HEALTH // salud / privado
+  CAR // coche
+  OTHER
+}
+
+enum PayFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+/// An insurance policy: informational + its premium feeds the monthly outflow.
+model Insurance {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  type      InsuranceType @default(OTHER)
+  provider  String? // compañía aseguradora
+  premium   Float         @default(0) // importe de la prima
+  frequency PayFrequency  @default(ANNUAL)
+  coverage  Float         @default(0) // capital / suma asegurada (informativo)
+  currency  String        @default("EUR")
+  renewalDate DateTime?
+  startDate DateTime? // alta: desde qué mes se cuenta (null = desde el inicio del histórico)
+  accountId String? // cash account the premium is paid from
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Generic liability not tied to a property (loans, credit).
+model Debt {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  balance   Float   @default(0) // outstanding EN `startDate`
+  tin       Float   @default(0) // nominal annual interest %
+  months    Int     @default(0) // remaining months EN `startDate`
+  startDate DateTime? // mes del primer cargo; null = no se amortiza sola
+  accountId String? // cash account the instalment is paid from
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

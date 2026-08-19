@@ -1,0 +1,216 @@
+/* Hallmark · macrostructure: Split Stat-Panel · tone: technical/premium
+ * theme: custom — paper oklch(18% 0.02 255) dark · accent oklch(78% 0.15 65) warm-amber
+ * fonts: Space Grotesk (display) + Geist (body) · axes: dark-paper / grotesk-sans / warm-accent
+ */
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  /* paper & surfaces (dark band, L < 30%) */
+  --background: oklch(18% 0.022 258);
+  --surface: oklch(22.5% 0.024 258);
+  --surface-2: oklch(27% 0.026 258);
+  --surface-hover: oklch(31% 0.028 258);
+  --border: oklch(33% 0.028 258);
+  --foreground: oklch(95% 0.008 250);
+  --muted: oklch(71% 0.02 255);
+
+  /* warm amber accent (anchor hue 65°) */
+  --accent: oklch(80% 0.15 70);
+  --accent-strong: oklch(72% 0.16 62);
+  --accent-2: oklch(70% 0.13 45);
+  --on-accent: oklch(22% 0.03 70);
+
+  /* semantic P/L */
+  --positive: oklch(78% 0.16 152);
+  --negative: oklch(68% 0.19 22);
+
+  /* chart palette — tuned to the amber anchor, no generic indigo/violet */
+  --chart-1: oklch(80% 0.15 70); /* amber (accent) */
+  --chart-2: oklch(72% 0.1 210); /* muted teal */
+  --chart-3: oklch(78% 0.16 152); /* green */
+  --chart-4: oklch(70% 0.13 45); /* warm orange */
+  --chart-5: oklch(68% 0.19 22); /* rose */
+  --chart-grid: oklch(33% 0.028 258);
+
+  /* type scale */
+  --text-display: clamp(2.6rem, 6vw, 4.6rem);
+  --text-display-s: clamp(2rem, 4vw, 3rem);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-micro: 160ms;
+}
+
+/* Light theme — set via data-theme on <html> (toggle or system preference). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(97% 0.006 90);
+  --surface: oklch(99.5% 0.003 90);
+  --surface-2: oklch(95% 0.008 85);
+  --surface-hover: oklch(92% 0.012 85);
+  --border: oklch(89% 0.012 85);
+  --foreground: oklch(26% 0.02 260);
+  --muted: oklch(47% 0.02 260);
+
+  --accent: oklch(62% 0.15 58);
+  --accent-strong: oklch(54% 0.15 54);
+  --accent-2: oklch(58% 0.13 40);
+  --on-accent: oklch(99% 0.01 90);
+
+  --positive: oklch(52% 0.16 152);
+  --negative: oklch(55% 0.2 25);
+
+  --chart-1: oklch(62% 0.15 58); /* amber */
+  --chart-2: oklch(52% 0.11 220); /* blue-teal */
+  --chart-3: oklch(54% 0.15 152); /* green */
+  --chart-4: oklch(60% 0.14 40); /* orange */
+  --chart-5: oklch(56% 0.2 25); /* rose */
+  --chart-grid: oklch(88% 0.012 85);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
+}
+
+* {
+  border-color: var(--border);
+}
+
+/* Mobile hard floor: never allow horizontal scroll. */
+html,
+body {
+  overflow-x: clip;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
+  font-style: normal; /* roman display only */
+  letter-spacing: -0.02em;
+}
+
+@layer components {
+  .card {
+    /* Elevation by lightness (brighter surface = higher), not shadow. */
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.6rem;
+    padding: 0.55rem 1rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    white-space: nowrap; /* no two-line clickable text */
+    transition:
+      background var(--dur-micro) var(--ease-out),
+      transform var(--dur-micro) var(--ease-out),
+      filter var(--dur-micro) var(--ease-out);
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn-primary:hover {
+    background: var(--accent-strong);
+  }
+  .btn-ghost {
+    background: var(--surface-2);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover {
+    background: var(--surface-hover);
+  }
+  .input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color var(--dur-micro) var(--ease-out);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px oklch(80% 0.15 70 / 0.22);
+  }
+  .label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+    display: block;
+    font-weight: 500;
+  }
+}
+
+/* Instant, high-contrast focus ring (never animated). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 0.4rem;
+}
+
+.text-positive {
+  color: var(--positive);
+}
+.text-negative {
+  color: var(--negative);
+}
+.text-muted {
+  color: var(--muted);
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
