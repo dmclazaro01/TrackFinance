@@ -1,18 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from "recharts";
+import dynamic from "next/dynamic";
 import type { PortfolioSnapshot } from "@/lib/portfolio";
 import {
   fmtCurrency,
@@ -27,10 +16,30 @@ import {
 import { refreshPropertyValuation } from "@/app/actions";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { PortfolioHistoryChart } from "@/components/PortfolioHistoryChart";
-import { useThemeColors } from "@/components/dashboard/theme";
+import { WarningIcon, RefreshIcon, ChevronRightIcon } from "@/components/icons";
 import { TYPE_LABEL, INSURANCE_LABEL, FREQ_LABEL } from "@/components/dashboard/labels";
 import { DeleteButton, Kpi, Row, EmptyHint } from "@/components/dashboard/widgets";
+
+/** Recharts is heavy; load the chart components only on the client and code-split
+ *  them out of the initial dashboard bundle. A skeleton holds their space. */
+function ChartSkeleton({ single = false }: { single?: boolean }) {
+  const card = (
+    <div className="card p-6">
+      <div className="h-4 w-40 rounded bg-[var(--surface-2)] mb-4" />
+      <div className="h-64 rounded-lg bg-[var(--surface-2)] animate-pulse" />
+    </div>
+  );
+  return single ? card : <div className="grid gap-6 lg:grid-cols-2">{card}{card}</div>;
+}
+
+const AllocationCharts = dynamic(
+  () => import("@/components/dashboard/AllocationCharts").then((m) => m.AllocationCharts),
+  { ssr: false, loading: () => <ChartSkeleton /> },
+);
+const PortfolioHistoryChart = dynamic(
+  () => import("@/components/PortfolioHistoryChart").then((m) => m.PortfolioHistoryChart),
+  { ssr: false, loading: () => <ChartSkeleton single /> },
+);
 import {
   AddHoldingButton,
   TransferHoldingButton,
@@ -59,10 +68,19 @@ export default function Dashboard({
 }) {
   const [data, setData] = useState<PortfolioSnapshot>(initial);
   const [refreshing, setRefreshing] = useState(false);
-  const chart = useThemeColors();
+  // null en el primer render para que SSR y CSR coincidan ("ahora mismo");
+  // el valor real se hidrata en useEffect.
+  const [now, setNow] = useState<number | null>(null);
 
   // Sync when the server component revalidates (after a mutation).
   useEffect(() => setData(initial), [initial]);
+
+  // Tick every 10s so the "actualizado hace…" label stays fresh.
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   async function refresh() {
     setRefreshing(true);
@@ -134,6 +152,16 @@ export default function Dashboard({
   ];
 
   const updated = new Date(data.updatedAt).toLocaleTimeString("es-ES");
+  // Si now es null (primer render / SSR) usamos el propio updatedAt para
+  // evitar mismatch de hidratación; tras el montaje now tiene Date.now().
+  const effectiveNow = now ?? new Date(data.updatedAt).getTime();
+  const secondsAgo = Math.max(0, Math.round((effectiveNow - new Date(data.updatedAt).getTime()) / 1000));
+  const relUpdated =
+    secondsAgo < 10
+      ? "ahora mismo"
+      : secondsAgo < 60
+        ? `hace ${secondsAgo}s`
+        : `hace ${Math.floor(secondsAgo / 60)} min`;
 
   return (
     <div className="flex-1">
@@ -150,12 +178,14 @@ export default function Dashboard({
               onClick={refresh}
               className="btn btn-ghost text-sm"
               disabled={refreshing}
-              title="Actualizar precios"
+              title={`Actualizar precios · actualizado ${relUpdated}`}
+              suppressHydrationWarning
             >
               <span
                 className={`inline-block w-2 h-2 rounded-full ${refreshing ? "bg-[var(--accent-2)] animate-pulse" : "bg-[var(--positive)]"}`}
               />
               {refreshing ? "Actualizando" : "En vivo"}
+              <span suppressHydrationWarning className="hidden lg:inline text-muted font-normal">· {relUpdated}</span>
             </button>
             <div className="flex items-center gap-2">
               {user.image ? (
@@ -235,89 +265,12 @@ export default function Dashboard({
           </div>
         </section>
 
-        {/* Charts */}
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="card p-6">
-            <h3 className="font-semibold mb-4">Distribución de activos</h3>
-            {summary.allocation.length === 0 ? (
-              <EmptyHint text="Añade inversiones, propiedades o efectivo para ver el reparto." />
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={summary.allocation}
-                      dataKey="value"
-                      nameKey="label"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                    >
-                      {summary.allocation.map((_, i) => (
-                        <Cell key={i} fill={chart.pie[i % chart.pie.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v) => c(Number(v))}
-                      contentStyle={{
-                        background: "var(--surface-2)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 8,
-                        color: "var(--foreground)",
-                      }}
-                      itemStyle={{ color: "var(--foreground)" }}
-                      labelStyle={{ color: "var(--muted)" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-            <div className="flex flex-wrap gap-3 mt-4 justify-center">
-              {summary.allocation.map((a, i) => (
-                <span key={a.label} className="text-xs flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-sm inline-block"
-                    style={{ background: chart.pie[i % chart.pie.length] }}
-                  />
-                  {a.label} · {c(a.value)}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="card p-6">
-            <h3 className="font-semibold mb-4">Activos y pasivos</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={breakdown}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
-                  <XAxis dataKey="name" tick={{ fill: chart.muted, fontSize: 12 }} />
-                  <YAxis
-                    tick={{ fill: chart.muted, fontSize: 11 }}
-                    tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
-                  />
-                  <Tooltip
-                    formatter={(v) => c(Number(v))}
-                    contentStyle={{
-                      background: "var(--surface-2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      color: "var(--foreground)",
-                    }}
-                    itemStyle={{ color: "var(--foreground)" }}
-                    labelStyle={{ color: "var(--muted)" }}
-                    cursor={{ fill: "rgba(128,128,128,0.12)" }}
-                  />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                    {breakdown.map((b, i) => (
-                      <Cell key={i} fill={b.value >= 0 ? chart.accent : chart.negative} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </section>
+        {/* Charts (lazy-loaded, code-split) */}
+        <AllocationCharts
+          allocation={summary.allocation}
+          breakdown={breakdown}
+          base={base}
+        />
 
         {/* Portfolio value over time */}
         <PortfolioHistoryChart base={base} />
@@ -338,18 +291,85 @@ export default function Dashboard({
           </div>
           {stalePrices && stalePrices.length > 0 && (
             <div
-              className="mb-3 rounded-lg border border-[var(--negative)]/40 bg-[var(--negative)]/10 px-3 py-2 text-xs text-negative"
+              className="mb-3 rounded-lg border border-[var(--negative)]/40 bg-[var(--negative)]/10 px-3 py-2 text-xs text-negative flex items-start gap-2"
               title={`Sin cotización en vivo: ${stalePrices.join(", ")}`}
             >
-              ⚠ Precios no actualizados para{" "}
-              <strong>{stalePrices.join(", ")}</strong>. Se valoran a precio de coste
-              hasta que el mercado responda (reintenta en unos minutos).
+              <WarningIcon size={14} className="mt-0.5 shrink-0" />
+              <span>
+                Precios no actualizados para{" "}
+                <strong>{stalePrices.join(", ")}</strong>. Se valoran a precio de coste
+                hasta que el mercado responda (reintenta en unos minutos).
+              </span>
             </div>
           )}
           {holdings.length === 0 ? (
             <EmptyHint text="Aún no has añadido inversiones. Busca por ISIN o ticker para empezar." />
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Mobile: stacked cards (the 7-column table scrolls awkwardly on phones). */}
+            <ul className="space-y-3 sm:hidden">
+              {holdings.map((h) => (
+                <li key={h.id} className="border border-[var(--border)] rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{h.name}</div>
+                      <div className="text-xs text-muted">
+                        {h.symbol} · {TYPE_LABEL[h.type] ?? h.type}
+                        {!h.live && (
+                          <span className="text-[var(--negative)]"> · sin cotización</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <EditHoldingButton holding={h} />
+                      <DeleteButton id={h.id} kind="holding" />
+                    </div>
+                  </div>
+                  {h.dcaAmount > 0 && (
+                    <div className="text-xs mt-2 inline-flex flex-wrap items-center gap-1.5">
+                      <span className="text-[var(--accent)] border border-[var(--border)] rounded-full px-2 py-0.5">
+                        DCA {fmtCurrency(h.dcaAmount, h.currency)}/mes
+                      </span>
+                      <span className="text-muted">
+                        aportado {c(h.dcaInvested)} · {h.dcaContributions} aport.
+                      </span>
+                    </div>
+                  )}
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-3 text-sm">
+                    <div className="flex justify-between col-span-2">
+                      <dt className="text-muted">Valor</dt>
+                      <dd className="tabular-nums font-medium">{c(h.marketValueBase)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted">Cantidad</dt>
+                      <dd className="tabular-nums">{h.quantity}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted">P. medio</dt>
+                      <dd className="tabular-nums">{fmtCurrency(h.avgBuyPrice, h.currency)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted">P. actual</dt>
+                      <dd className="tabular-nums">
+                        {h.price != null
+                          ? fmtCurrency(h.price, h.priceCurrency ?? h.currency)
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted">P/L</dt>
+                      <dd
+                        className={`tabular-nums ${h.plBase >= 0 ? "text-positive" : "text-negative"}`}
+                      >
+                        {c(h.plBase)} · {fmtPct(h.plPct)}
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            {/* Desktop: full table. */}
+            <div className="overflow-x-auto hidden sm:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-muted text-left border-b border-[var(--border)]">
@@ -417,6 +437,7 @@ export default function Dashboard({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
 
@@ -462,11 +483,11 @@ export default function Dashboard({
                           <input type="hidden" name="id" value={p.id} />
                           <button
                             type="submit"
-                            className="text-muted hover:text-[var(--accent)]"
+                            className="text-muted hover:text-[var(--accent)] inline-flex"
                             title="Actualizar tasación ahora"
                             aria-label="Actualizar tasación"
                           >
-                            ↻
+                            <RefreshIcon size={14} />
                           </button>
                         </form>
                       </div>
@@ -631,7 +652,7 @@ export default function Dashboard({
             </div>
             <div className="flex items-center gap-3">
               <a href="/dashboard/movimientos" className="btn btn-ghost text-sm">
-                Histórico mensual ›
+                Histórico mensual <ChevronRightIcon />
               </a>
               <AddTransactionButton accounts={cash} />
             </div>
@@ -656,7 +677,55 @@ export default function Dashboard({
           {transactions.length === 0 ? (
             <EmptyHint text="Sin movimientos. Añade tus ingresos y gastos; el cashback se calcula solo si la cuenta lo tiene." />
           ) : (
-            <div className="card p-2 overflow-x-auto">
+            <>
+            {/* Mobile: stacked cards. */}
+            <ul className="space-y-2 sm:hidden">
+              {transactions.map((t) => {
+                const income = t.type === "INCOME";
+                return (
+                  <li
+                    key={t.id}
+                    className="border border-[var(--border)] rounded-xl p-3 flex items-start justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">
+                        {t.category ?? (income ? "Ingreso" : "Gasto")}
+                      </div>
+                      <div className="text-xs text-muted">
+                        {new Date(t.date).toLocaleDateString("es-ES", {
+                          day: "2-digit",
+                          month: "short",
+                        })}
+                        {" · "}
+                        {accountName(t.accountId)}
+                        {t.description ? ` · ${t.description}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <div
+                          className={`tabular-nums text-sm ${income ? "text-positive" : "text-negative"}`}
+                        >
+                          {income ? "+" : "−"}
+                          {fmtCurrency(t.amount, t.currency)}
+                        </div>
+                        {t.cashback > 0 && (
+                          <div className="tabular-nums text-xs text-positive">
+                            +{fmtCurrency(t.cashback, t.currency)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <EditTransactionButton transaction={t} accounts={cash} />
+                        <DeleteButton id={t.id} kind="transaction" />
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {/* Desktop: full table. */}
+            <div className="card p-2 overflow-x-auto hidden sm:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-muted text-left border-b border-[var(--border)]">
@@ -710,6 +779,7 @@ export default function Dashboard({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
 
@@ -799,7 +869,7 @@ export default function Dashboard({
           </div>
         </section>
 
-        <p className="text-center text-xs text-muted pb-4">
+        <p suppressHydrationWarning className="text-center text-xs text-muted pb-4">
           Última actualización: {updated} · Datos vía Yahoo Finance · No constituye
           asesoramiento financiero.
         </p>

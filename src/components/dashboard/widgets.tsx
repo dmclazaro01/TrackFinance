@@ -1,7 +1,9 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { deleteItem } from "@/app/actions";
+import { ConfirmDialog } from "@/components/ui";
+import { TrashIcon } from "@/components/icons";
 
 const DELETE_CONFIRM_LABEL: Record<string, string> = {
   holding: "esta inversión",
@@ -13,27 +15,40 @@ const DELETE_CONFIRM_LABEL: Record<string, string> = {
 };
 
 export function DeleteButton({ id, kind }: { id: string; kind: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const label = DELETE_CONFIRM_LABEL[kind] ?? "este elemento";
+
   return (
-    <form
-      action={deleteItem}
-      onSubmit={(e) => {
-        const label = DELETE_CONFIRM_LABEL[kind] ?? "este elemento";
-        if (!window.confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) {
-          e.preventDefault();
-        }
-      }}
-    >
-      <input type="hidden" name="id" value={id} />
-      <input type="hidden" name="kind" value={kind} />
-      <button
-        type="submit"
-        className="text-muted hover:text-[var(--negative)] text-sm px-2"
-        aria-label="Eliminar"
+    <>
+      <form ref={formRef} action={deleteItem}>
+        <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="kind" value={kind} />
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="text-muted hover:text-[var(--negative)] px-1.5 inline-flex"
+          aria-label="Eliminar"
+          title="Eliminar"
+        >
+          <TrashIcon />
+        </button>
+      </form>
+      <ConfirmDialog
+        open={confirming}
         title="Eliminar"
-      >
-        ✕
-      </button>
-    </form>
+        message={
+          <>
+            ¿Eliminar {label}? Esta acción no se puede deshacer.
+          </>
+        }
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          formRef.current?.requestSubmit();
+        }}
+      />
+    </>
   );
 }
 

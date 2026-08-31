@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import type { CashInput } from "@/lib/calc";
+import { PencilIcon } from "@/components/icons";
 
 /** Shared building blocks for the entity forms (holdings, property, cash,
  *  debt, insurance, transactions, profile). Each domain form lives in its own
@@ -43,8 +44,8 @@ export function AccountSelect({
 
 export function EditIcon() {
   return (
-    <span title="Editar" aria-hidden className="text-base leading-none">
-      ✎
+    <span title="Editar" className="inline-flex">
+      <PencilIcon />
     </span>
   );
 }

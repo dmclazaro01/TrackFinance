@@ -15,10 +15,12 @@ const CHART_TOKENS = [
 export function useThemeColors() {
   const [colors, setColors] = useState({
     pie: ["#0000", "#0000", "#0000", "#0000", "#0000"],
-    grid: "#26304a",
+    grid: "#0000",
     accent: "#0000",
     negative: "#0000",
-    muted: "#93a0bd",
+    positive: "#0000",
+    invested: "#0000",
+    muted: "#0000",
   });
   useEffect(() => {
     const readColors = () => {
@@ -29,6 +31,8 @@ export function useThemeColors() {
         grid: read("--chart-grid"),
         accent: read("--accent"),
         negative: read("--negative"),
+        positive: read("--positive"),
+        invested: read("--chart-2"),
         muted: read("--muted"),
       });
     };

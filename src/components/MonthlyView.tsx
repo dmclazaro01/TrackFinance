@@ -11,6 +11,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { fmtCurrency, monthKey, type TransactionInput } from "@/lib/calc";
+import { useThemeColors } from "@/components/dashboard/theme";
+import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 
 const KIND_COLORS: Record<string, string> = {
   Ingresos: "var(--positive)",
@@ -32,33 +34,6 @@ function monthLabel(key: string): string {
   });
 }
 
-function useThemeColor() {
-  const [c, setC] = useState({
-    grid: "#26304a",
-    muted: "#93a0bd",
-    pos: "#22c55e",
-    neg: "#f43f5e",
-    invested: "#3aa0c9",
-  });
-  useEffect(() => {
-    const read = () => {
-      const s = getComputedStyle(document.documentElement);
-      setC({
-        grid: s.getPropertyValue("--chart-grid").trim() || "#26304a",
-        muted: s.getPropertyValue("--muted").trim() || "#93a0bd",
-        pos: s.getPropertyValue("--positive").trim() || "#22c55e",
-        neg: s.getPropertyValue("--negative").trim() || "#f43f5e",
-        invested: s.getPropertyValue("--chart-2").trim() || "#3aa0c9",
-      });
-    };
-    read();
-    const obs = new MutationObserver(read);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => obs.disconnect();
-  }, []);
-  return c;
-}
-
 export function MonthlyView({
   transactions,
   accounts,
@@ -70,7 +45,7 @@ export function MonthlyView({
   base: string;
   recurringByMonth?: Record<string, number>;
 }) {
-  const color = useThemeColor();
+  const color = useThemeColors();
   const c = (v: number) => fmtCurrency(v, base);
   const accountName = (id: string | null) =>
     id ? (accounts.find((a) => a.id === id)?.name ?? "—") : "—";
@@ -129,6 +104,19 @@ export function MonthlyView({
       Gastos: -m.expense,
     };
   });
+
+  // Eje Y dinámico: la altura se ajusta al mes más alto (ingresos o gastos) con
+  // un 10% de aire, redondeado a un valor "bonito". Nunca recorta las barras.
+  const yMax = useMemo(() => {
+    const peak = chartData.reduce(
+      (max, d) => Math.max(max, d["Ingresos (resto)"] + d.Inversiones, d.Gastos),
+      0,
+    );
+    if (peak <= 0) return 1000;
+    const padded = peak * 1.1;
+    const mag = 10 ** Math.floor(Math.log10(padded));
+    return Math.ceil(padded / mag) * mag;
+  }, [chartData]);
 
   const monthTxs = useMemo(
     () =>
@@ -190,9 +178,10 @@ export function MonthlyView({
               <YAxis
                 tick={{ fill: color.muted, fontSize: 11 }}
                 width={48}
-                domain={[0, 3500]}
-                allowDataOverflow
-                tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
+                domain={[0, yMax]}
+                tickFormatter={(v: number) =>
+                  v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))
+                }
               />
               <Tooltip
                 formatter={(v) => c(Math.abs(Number(v)))}
@@ -210,7 +199,7 @@ export function MonthlyView({
                 dataKey="Ingresos (resto)"
                 name="Ingresos"
                 stackId="ing"
-                fill={color.pos}
+                fill={color.positive}
                 radius={[0, 0, 0, 0]}
               />
               <Bar
@@ -220,7 +209,7 @@ export function MonthlyView({
                 fill={color.invested}
                 radius={[4, 4, 0, 0]}
               />
-              <Bar dataKey="Gastos" stackId="gas" fill={color.neg} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Gastos" stackId="gas" fill={color.negative} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -237,10 +226,30 @@ export function MonthlyView({
             <span className="w-2 h-2 rounded-sm" style={{ background: "var(--negative)" }} />
             Gastos
           </span>
-          <span className="text-muted">
-            Barras que superan 3.500 € se recortan: pasa el ratón para ver el valor real.
-          </span>
         </div>
+
+        {/* Alternativa textual del gráfico para lectores de pantalla. */}
+        <table className="sr-only">
+          <caption>Ingresos y gastos por mes</caption>
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th>Ingresos</th>
+              <th>Inversiones</th>
+              <th>Gastos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {chartData.map((d) => (
+              <tr key={d.name}>
+                <td>{d.name}</td>
+                <td>{c(d["Ingresos (resto)"] + d.Inversiones)}</td>
+                <td>{c(d.Inversiones)}</td>
+                <td>{c(d.Gastos)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Month selector */}
@@ -250,7 +259,7 @@ export function MonthlyView({
           onClick={() => idx > 0 && setSelected(months[idx - 1])}
           disabled={idx <= 0}
         >
-          ‹ Anterior
+          <ChevronLeftIcon /> Anterior
         </button>
         <div className="font-display font-semibold capitalize">{monthLabel(selected)}</div>
         <button
@@ -258,7 +267,7 @@ export function MonthlyView({
           onClick={() => idx < months.length - 1 && setSelected(months[idx + 1])}
           disabled={idx >= months.length - 1}
         >
-          Siguiente ›
+          Siguiente <ChevronRightIcon />
         </button>
       </div>
 

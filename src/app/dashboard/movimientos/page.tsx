@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ChevronLeftIcon, DownloadIcon } from "@/components/icons";
 import { ImportTransactions } from "@/components/ImportTransactions";
 import { HistoryOverview } from "@/components/HistoryOverview";
 import { MonthlyView } from "@/components/MonthlyView";
@@ -50,7 +51,7 @@ export default async function MovimientosPage() {
           </Link>
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="btn btn-ghost text-sm">
-              ‹ Panel
+              <ChevronLeftIcon /> Panel
             </Link>
             <ThemeToggle />
           </div>
@@ -66,6 +67,16 @@ export default async function MovimientosPage() {
               (hoja «Transactions Log»).
             </p>
           </div>
+          {transactions.length > 0 && (
+            <a
+              href="/api/transactions/export"
+              download
+              className="btn btn-ghost text-sm"
+              title="Descargar tus movimientos en Excel"
+            >
+              <DownloadIcon /> Exportar Excel
+            </a>
+          )}
         </div>
 
         <div className="card p-6">

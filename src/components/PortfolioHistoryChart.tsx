@@ -11,35 +11,17 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { fmtCurrency, fmtPct } from "@/lib/calc";
+import { useThemeColors } from "@/components/dashboard/theme";
 
 type Point = { date: string; value: number };
 type Range = "1S" | "1M" | "1A";
 const RANGE_DAYS: Record<Range, number> = { "1S": 7, "1M": 31, "1A": 366 };
 
-function useThemeColor() {
-  const [c, setC] = useState({ accent: "#f5a623", grid: "#26304a", muted: "#93a0bd" });
-  useEffect(() => {
-    const read = () => {
-      const s = getComputedStyle(document.documentElement);
-      setC({
-        accent: s.getPropertyValue("--accent").trim() || "#f5a623",
-        grid: s.getPropertyValue("--chart-grid").trim() || "#26304a",
-        muted: s.getPropertyValue("--muted").trim() || "#93a0bd",
-      });
-    };
-    read();
-    const obs = new MutationObserver(read);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => obs.disconnect();
-  }, []);
-  return c;
-}
-
 export function PortfolioHistoryChart({ base }: { base: string }) {
   const [series, setSeries] = useState<Point[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<Range>("1M");
-  const color = useThemeColor();
+  const color = useThemeColors();
 
   useEffect(() => {
     let alive = true;
