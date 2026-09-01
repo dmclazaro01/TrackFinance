@@ -65,16 +65,8 @@ export async function loadPortfolio(userId: string): Promise<PortfolioSnapshot> 
     monthStart,
   );
 
-  const [
-    profileRow,
-    properties,
-    holdingRows,
-    cash,
-    debts,
-    insuranceRows,
-    salaryAllocationRows,
-    transactionRows,
-  ] = await Promise.all([
+  const [profileRow, properties, holdingRows, cash, debts, insuranceRows, salaryAllocationRows] =
+    await Promise.all([
       prisma.profile.findUnique({ where: { userId } }),
       prisma.property.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
       prisma.holding.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
@@ -82,11 +74,24 @@ export async function loadPortfolio(userId: string): Promise<PortfolioSnapshot> 
       prisma.debt.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
       prisma.insurance.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
       prisma.salaryAllocation.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.transaction.findMany({
-        where: { userId, date: { gte: txSince } },
-        orderBy: { date: "desc" },
-      }),
     ]);
+
+  // Auto-nómina del mes: idempotente, no bloquea el dashboard si falla.
+  // Se crea ANTES de leer transacciones para que el mes en curso ya muestre el ingreso
+  // en `txMonth` y en `effectiveBalance`. No se suma a `monthlyIncome` (teórico) -> no hay doble conteo.
+  if (profileRow?.netMonthly && profileRow.netMonthly > 0) {
+    try {
+      const { ensureMonthlySalaryForUser } = await import("@/lib/salary");
+      await ensureMonthlySalaryForUser(userId);
+    } catch {
+      /* best-effort: el portfolio se puede calcular sin la nómina auto */
+    }
+  }
+
+  const transactionRows = await prisma.transaction.findMany({
+    where: { userId, date: { gte: txSince } },
+    orderBy: { date: "desc" },
+  });
 
   const profile: ProfileInput = profileRow ? toProfileInput(profileRow) : DEFAULT_PROFILE;
 
