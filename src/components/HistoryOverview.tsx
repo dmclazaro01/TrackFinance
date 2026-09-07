@@ -14,10 +14,13 @@ export function HistoryOverview({
   transactions,
   base,
   recurringByMonth,
+  dcaByMonth,
 }: {
   transactions: TransactionInput[];
   base: string;
   recurringByMonth?: Record<string, number>;
+  /** Aportaciones DCA por mes (moneda base), derivadas de los planes. */
+  dcaByMonth?: Record<string, number>;
 }) {
   if (transactions.length === 0) return null;
 
@@ -44,6 +47,15 @@ export function HistoryOverview({
     for (const v of Object.values(recurringByMonth)) totalRecurring += v;
   }
   totalExpenses += totalRecurring;
+
+  // El DCA no genera Transaction: se suma como inversión derivada, igual que en
+  // la vista mensual, para que ambos paneles cuadren.
+  if (dcaByMonth) {
+    for (const [m, v] of Object.entries(dcaByMonth)) {
+      totalInvested += v;
+      monthSet.add(m);
+    }
+  }
 
   const monthsCovered = monthSet.size;
   const balance = totalIncome - totalExpenses;

@@ -39,27 +39,28 @@ export function MonthlyView({
   accounts,
   base,
   recurringByMonth,
+  dcaByMonth,
 }: {
   transactions: TransactionInput[];
   accounts: { id: string; name: string }[];
   base: string;
   recurringByMonth?: Record<string, number>;
+  /** Aportaciones DCA por mes (moneda base), derivadas de los planes. */
+  dcaByMonth?: Record<string, number>;
 }) {
   const color = useThemeColors();
   const c = (v: number) => fmtCurrency(v, base);
   const accountName = (id: string | null) =>
     id ? (accounts.find((a) => a.id === id)?.name ?? "—") : "—";
 
-  // Group by month.
+  // Group by month. Se incluyen también los meses que sólo tienen aportación DCA
+  // (sin movimientos registrados) para que la inversión no quede oculta.
   const months = useMemo(() => {
-    const map = new Map<string, TransactionInput[]>();
-    for (const t of transactions) {
-      const k = monthKey(t.date);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(t);
-    }
-    return [...map.keys()].sort(); // ascending
-  }, [transactions]);
+    const set = new Set<string>();
+    for (const t of transactions) set.add(monthKey(t.date));
+    for (const k of Object.keys(dcaByMonth ?? {})) set.add(k);
+    return [...set].sort(); // ascending
+  }, [transactions, dcaByMonth]);
 
   const [selected, setSelected] = useState<string>("");
   useEffect(() => {
@@ -80,16 +81,19 @@ export function MonthlyView({
         else if (kind === "Inversiones") invested += t.amount;
         else expense += t.amount;
       }
+      const dca = dcaByMonth?.[k] ?? 0;
+      invested += dca; // aportación DCA derivada del mes
       return {
         key: k,
         label: monthLabel(k),
         income,
         expense: -(expense + rec),
         invested,
-        net: income - expense - rec,
+        // El DCA sale a inversión: resta del neto del mes.
+        net: income - expense - rec - dca,
       };
     });
-  }, [months, transactions, recurringByMonth]);
+  }, [months, transactions, recurringByMonth, dcaByMonth]);
 
   const chartData = monthly.slice(-12).map((m) => {
     // La inversión es parte de los ingresos de ese mes, no dinero adicional:
@@ -133,6 +137,7 @@ export function MonthlyView({
   }, [monthTxs]);
 
   const recurring = recurringByMonth?.[selected] ?? 0;
+  const dcaSel = dcaByMonth?.[selected] ?? 0;
   const income = byKind["Ingresos"] ?? 0;
   const gastosFijos = (byKind["Gastos fijos"] ?? 0) + recurring;
   const gastosVariables = byKind["Gastos variables"] ?? 0;
@@ -140,6 +145,8 @@ export function MonthlyView({
   const kindValues: Record<string, number> = {
     ...byKind,
     "Gastos fijos": gastosFijos,
+    // El DCA no genera Transaction: se suma aquí como inversión derivada del mes.
+    Inversiones: (byKind["Inversiones"] ?? 0) + dcaSel,
   };
 
   // Expense categories for the month.
@@ -280,15 +287,21 @@ export function MonthlyView({
               {k}
             </div>
             <div className="text-lg font-bold tabular-nums">{c(kindValues[k] ?? 0)}</div>
+            {k === "Inversiones" && dcaSel > 0 && (
+              <div className="text-xs text-muted mt-0.5">incl. {c(dcaSel)} vía DCA</div>
+            )}
           </div>
         ))}
         <div className="card p-4">
           <div className="text-xs text-muted mb-1">Balance</div>
           <div
-            className={`text-lg font-bold tabular-nums ${income - outflow >= 0 ? "text-positive" : "text-negative"}`}
+            className={`text-lg font-bold tabular-nums ${income - outflow - dcaSel >= 0 ? "text-positive" : "text-negative"}`}
           >
-            {c(income - outflow)}
+            {c(income - outflow - dcaSel)}
           </div>
+          {dcaSel > 0 && (
+            <div className="text-xs text-muted mt-0.5">tras {c(dcaSel)} de DCA</div>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import "server-only";
 import YahooFinance from "yahoo-finance2";
+import { dcaContributionDates } from "@/lib/calc";
 
 // v4 requires instantiating the client class. Suppress the one-time survey notice.
 const yahooFinance = new YahooFinance({
@@ -194,20 +195,20 @@ export async function computeDca(
     return { ...EMPTY_DCA };
   }
   const now = new Date();
-  if (start > now) {
-    return { ...EMPTY_DCA, nextDate: toBusinessDay(start).toISOString() };
-  }
+  // Modelo "suscripción mensual" (compartido con la vista mensual): una
+  // aportación por mes natural desde el mes de inicio -> las cifras cuadran.
+  const dates = dcaContributionDates(start.toISOString(), now);
+  // Próxima aportación: 1º (hábil) del mes siguiente al último (o del mes de
+  // inicio si el plan aún no ha arrancado).
+  const lastMonth = dates.length
+    ? dates[dates.length - 1]
+    : new Date(start.getFullYear(), start.getMonth(), 1, 12, 0, 0);
+  const nextDate = toBusinessDay(
+    new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1, 12, 0, 0),
+  ).toISOString();
+  if (dates.length === 0) return { ...EMPTY_DCA, nextDate };
 
-  // Monthly contribution dates up to today, each rolled to a business day.
-  const dates: Date[] = [];
-  const cursor = new Date(start);
-  while (cursor <= now) {
-    dates.push(toBusinessDay(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-  const nextDate = toBusinessDay(new Date(cursor)).toISOString();
-
-  const rows = await getDailyCloses(symbol, start);
+  const rows = await getDailyCloses(symbol, dates[0]);
 
   // Price on a date = close of the first trading day >= that date.
   const priceOn = (d: Date): number | null => {

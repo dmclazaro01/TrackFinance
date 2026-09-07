@@ -217,6 +217,79 @@ export function recurringByMonth(args: {
   return out;
 }
 
+/** Fin de semana -> siguiente día hábil. Réplica local de la de finance.ts:
+ *  calc.ts es compartido cliente/servidor y no puede importar server-only. */
+function dcaBusinessDay(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = dom, 6 = sáb
+  if (day === 6) d.setDate(d.getDate() + 2);
+  else if (day === 0) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+/** Días considerados "mediados de mes": esos planes conservan su día (entrada
+ *  intencionada a mitad de mes); el resto se normaliza al día 1. */
+const DCA_MID_MONTH_LO = 10;
+const DCA_MID_MONTH_HI = 20;
+
+/**
+ * Fechas de aportación de un plan DCA, desde el mes de inicio hasta hoy.
+ * Modelo híbrido:
+ *  - Planes configurados a MEDIADOS de mes (día 10–20): aportan en su propio día
+ *    cada mes (no cuentan el mes en curso hasta que ese día llega).
+ *  - El RESTO: aportan el día 1 de cada mes (cuentan desde el día 1, sin esperar
+ *    a su día de aniversario — p. ej. uno configurado a fin de mes entra ya el 1).
+ * Cada fecha se mueve a día hábil y se ancla a mediodía local (evita saltos de
+ * mes por el desfase con UTC). Compartido por `dcaByMonth` (vista mensual) y
+ * `computeDca` (valoración) -> las cifras cuadran.
+ */
+export function dcaContributionDates(startISO: string, now = new Date()): Date[] {
+  const s = new Date(startISO);
+  if (Number.isNaN(s.getTime())) return [];
+  const startDay = s.getDate(); // día local elegido por el usuario
+  const midMonth = startDay >= DCA_MID_MONTH_LO && startDay <= DCA_MID_MONTH_HI;
+  const day = midMonth ? startDay : 1; // día de aportación dentro de cada mes
+  const out: Date[] = [];
+  const cursor = new Date(s.getFullYear(), s.getMonth(), day, 12, 0, 0);
+  while (true) {
+    const d = dcaBusinessDay(cursor);
+    if (d > now) break; // aún no ha llegado ese día este mes
+    out.push(d);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return out;
+}
+
+/** Un plan DCA visto sólo para agrupar aportaciones (sin precios). */
+export type DcaPlan = {
+  dcaAmount: number;
+  dcaStartDate: string | null;
+  currency: string;
+};
+
+/**
+ * Aportaciones DCA acumuladas por mes (en moneda base), para todos los planes
+ * activos. Derivado en vivo de los planes (no crea movimientos). El total entre
+ * meses coincide con el coste DCA que `summarize` descuenta del efectivo, de
+ * modo que no hay doble conteo en el patrimonio.
+ */
+export function dcaByMonth(
+  plans: DcaPlan[],
+  fx: Record<string, number>,
+  now = new Date(),
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const p of plans) {
+    if (!(p.dcaAmount > 0) || !p.dcaStartDate) continue;
+    const amt = conv(p.dcaAmount, p.currency, fx);
+    for (const d of dcaContributionDates(p.dcaStartDate, now)) {
+      const k = monthKey(d.toISOString());
+      out.set(k, (out.get(k) ?? 0) + amt);
+    }
+  }
+  return out;
+}
+
 export type ImportResult = { imported: number; skipped: number; error?: string };
 
 export type TransactionInput = {
@@ -401,6 +474,7 @@ export type PortfolioSummary = {
     income: number;
     expenses: number;
     investments: number;
+    dca: number; // parte de `investments` que proviene del DCA (aportación del mes)
     recurring: number;
     cashback: number;
     net: number;
@@ -662,7 +736,7 @@ export function summarize(args: {
   const dayChange = holdings.reduce((s, h) => s + h.dayChangeBase, 0);
   // Remunerated accounts capitalise interest; logged transactions move the
   // balance too (income/cashback add, expenses subtract).
-  const cashTotal = cash.reduce(
+  const cashAccountsTotal = cash.reduce(
     (s, c) =>
       s +
       conv(
@@ -673,6 +747,15 @@ export function summarize(args: {
       ),
     0,
   );
+  // Las aportaciones DCA ya suman al valor de inversión (effectiveQuantity), pero
+  // ese capital salió del efectivo y nunca se registró como movimiento. Se
+  // descuenta del efectivo agregado para no contar dos veces el mismo dinero en
+  // el patrimonio neto (modelo "global": no se imputa a una cuenta concreta).
+  const dcaInvestedBase = holdings.reduce(
+    (s, h) => s + conv(h.dcaInvested, h.currency, fx),
+    0,
+  );
+  const cashTotal = cashAccountsTotal - dcaInvestedBase;
   const cashInterestMonthly = cash.reduce(
     (s, c) =>
       s +
@@ -718,6 +801,12 @@ export function summarize(args: {
     txCashback += conv(t.cashback, t.currency, fx);
   }
 
+  // DCA del mes en curso: aportación derivada de los planes (no es una
+  // Transaction). Se muestra como inversión del mes; el total entre meses cuadra
+  // con el efectivo ya descontado del patrimonio, así que no hay doble conteo.
+  const dcaThisMonth = dcaByMonth(holdings, fx, now).get(monthKey(now.toISOString())) ?? 0;
+  txInvestments += dcaThisMonth;
+
   // Costes fijos recurrentes del mes (seguros + hipotecas + deudas), sin
   // duplicar los que ya estén registrados como movimiento.
   const recurringThisMonth = recurringDueForMonth({
@@ -733,9 +822,11 @@ export function summarize(args: {
     income: txIncome,
     expenses: txExpenses,
     investments: txInvestments,
+    dca: dcaThisMonth,
     recurring: recurringThisMonth,
     cashback: txCashback,
-    net: txIncome + txCashback - txExpenses,
+    // El DCA es dinero que sale a inversión: resta del neto del mes.
+    net: txIncome + txCashback - txExpenses - dcaThisMonth,
   };
 
   return {

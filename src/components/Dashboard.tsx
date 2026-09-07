@@ -661,7 +661,16 @@ export default function Dashboard({
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-5 mb-4">
             <Kpi label="Ingresos (mes)" value={c(summary.txMonth.income)} tone="positive" />
             <Kpi label="Gastos (mes)" value={c(summary.txMonth.expenses)} tone="negative" />
-            <Kpi label="Inversiones (mes)" value={c(summary.txMonth.investments)} tone="neutral" />
+            <Kpi
+              label="Inversiones (mes)"
+              value={c(summary.txMonth.investments)}
+              tone="neutral"
+              sub={
+                summary.txMonth.dca > 0 ? (
+                  <span className="text-muted">incl. {c(summary.txMonth.dca)} vía DCA</span>
+                ) : undefined
+              }
+            />
             <Kpi
               label="Cashback (mes)"
               value={c(summary.txMonth.cashback)}

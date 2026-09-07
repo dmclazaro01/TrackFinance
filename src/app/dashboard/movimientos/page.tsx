@@ -13,7 +13,8 @@ import {
   toPropertyInput,
   toTransactionInput,
 } from "@/lib/inputs";
-import { recurringByMonth } from "@/lib/calc";
+import { recurringByMonth, dcaByMonth } from "@/lib/calc";
+import { buildFxTable } from "@/lib/finance";
 
 export const dynamic = "force-dynamic";
 
@@ -22,17 +23,23 @@ export default async function MovimientosPage() {
   if (!session?.user?.id) redirect("/login");
   const userId = session.user.id;
 
-  const [rows, accounts, profile, insuranceRows, propertyRows] = await Promise.all([
-    prisma.transaction.findMany({ where: { userId }, orderBy: { date: "desc" } }),
-    prisma.cashAccount.findMany({ where: { userId }, select: { id: true, name: true } }),
-    prisma.profile.findUnique({ where: { userId }, select: { baseCurrency: true } }),
-    prisma.insurance.findMany({ where: { userId } }),
-    prisma.property.findMany({ where: { userId } }),
-  ]);
+  const [rows, accounts, profile, insuranceRows, propertyRows, holdingRows] =
+    await Promise.all([
+      prisma.transaction.findMany({ where: { userId }, orderBy: { date: "desc" } }),
+      prisma.cashAccount.findMany({ where: { userId }, select: { id: true, name: true } }),
+      prisma.profile.findUnique({ where: { userId }, select: { baseCurrency: true } }),
+      prisma.insurance.findMany({ where: { userId } }),
+      prisma.property.findMany({ where: { userId } }),
+      prisma.holding.findMany({
+        where: { userId, dcaAmount: { gt: 0 } },
+        select: { dcaAmount: true, dcaStartDate: true, currency: true },
+      }),
+    ]);
 
   const transactions = rows.map(toTransactionInput);
   const insurances = insuranceRows.map(toInsuranceInput);
   const properties = propertyRows.map(toPropertyInput);
+  const base = profile?.baseCurrency ?? "EUR";
 
   const recurringByMonthMap = recurringByMonth({
     transactions,
@@ -40,6 +47,18 @@ export default async function MovimientosPage() {
     properties,
   });
   const recurring = Object.fromEntries(recurringByMonthMap);
+
+  // Aportaciones DCA por mes (derivadas de los planes, sin crear movimientos).
+  const dcaPlans = holdingRows.map((h) => ({
+    dcaAmount: h.dcaAmount,
+    dcaStartDate: h.dcaStartDate ? h.dcaStartDate.toISOString() : null,
+    currency: h.currency,
+  }));
+  const fx = await buildFxTable(
+    dcaPlans.map((p) => p.currency),
+    base,
+  );
+  const dca = Object.fromEntries(dcaByMonth(dcaPlans, fx));
 
   return (
     <div className="flex-1">
@@ -88,8 +107,8 @@ export default async function MovimientosPage() {
           <ImportTransactions />
         </div>
 
-        <HistoryOverview transactions={transactions} base={profile?.baseCurrency ?? "EUR"} recurringByMonth={recurring} />
-        <MonthlyView transactions={transactions} accounts={accounts} base={profile?.baseCurrency ?? "EUR"} recurringByMonth={recurring} />
+        <HistoryOverview transactions={transactions} base={base} recurringByMonth={recurring} dcaByMonth={dca} />
+        <MonthlyView transactions={transactions} accounts={accounts} base={base} recurringByMonth={recurring} dcaByMonth={dca} />
       </main>
     </div>
   );
